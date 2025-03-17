@@ -119,9 +119,9 @@ class UVCellSnapOperator(bpy.types.Operator):
                     islands.append(island_uvs)
 
             if not islands:
-                self.report({'ERROR'}, "No selected UVs found")
-                bpy.ops.object.mode_set(mode='OBJECT')
-                return {'CANCELLED'}
+                self.report({'WARNING'}, "No selected UVs found")
+                # bpy.ops.object.mode_set(mode='OBJECT')
+                # return {'CANCELLED'}
 
             # Move each island
             for island in islands:
@@ -223,9 +223,9 @@ class UVCellSnapOffset(bpy.types.Operator):
                     islands.append(island_uvs)
 
             if not islands:
-                self.report({'ERROR'}, "No selected UVs found")
-                bpy.ops.object.mode_set(mode='OBJECT')
-                return {'CANCELLED'}
+                self.report({'WARNING'}, "No selected UVs found")
+                # bpy.ops.object.mode_set(mode='OBJECT')
+                # return {'CANCELLED'}
 
             # Move each island
             for island in islands:
@@ -304,11 +304,46 @@ class UVCellSnapPanel(bpy.types.Panel):
         row.prop(prefs, "uv_channel")
 
 
-class VIEW3D_PT_UVCellSnap(UVCellSnapPanel):
+class VIEW3D_PT_UVCellSnap(bpy.types.Panel):
     """Creates a UI panel for UV Cell Snap in the 3D View"""
+    bl_label = "UV Cell Snap"
     bl_idname = "VIEW3D_PT_cell_snap"
     bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
     bl_category = "UV"
+
+    @classmethod
+    def poll(cls, context):
+        """Only show in 3D View when in edit mode."""
+        return context.mode == 'EDIT_MESH'
+
+    def draw(self, context):
+        """Draw the UV Cell Snap panel UI elements."""
+        layout = self.layout
+        prefs = context.preferences.addons[__name__].preferences
+
+        for row in range(prefs.grid_rows):
+            row_layout = layout.row()
+            for col in range(prefs.grid_columns):
+                index = row * prefs.grid_columns + col
+                row_layout.operator("uv.cell_snap", text=str(index+1)).cell_index = index
+
+        directions = ["up", "down", "left", "right"]
+        arrows = ["TRIA_UP", "TRIA_DOWN", "TRIA_LEFT", "TRIA_RIGHT"]
+
+        grid = layout.grid_flow(
+            row_major=True,
+            columns=4,
+            even_columns=True,
+            even_rows=True,
+            align=True
+        )
+
+        for direction, arrow in zip(directions, arrows):
+            grid.operator("uv.cell_snap_offset", text="", icon=arrow).direction = direction
+
+        row = layout.row()
+        row.prop(prefs, "uv_channel")
 
 
 class UVCellSnapMenu(bpy.types.Menu):
