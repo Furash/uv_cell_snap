@@ -65,7 +65,6 @@ class UVCellSnapOperator(bpy.types.Operator):
 
             # Switch to edit mode and perform the UV snapping
             bpy.context.view_layer.objects.active = obj
-            bpy.ops.object.mode_set(mode='EDIT')
 
             mesh = obj.data
             bm = bmesh.from_edit_mesh(mesh)
