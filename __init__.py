@@ -13,21 +13,12 @@ bl_info = {
 }
 
 
-class UVCellSnapPreferences(bpy.types.AddonPreferences):
-    """Preferences for the UV Cell Snap addon."""
+class UVCellSnapSceneProperties(bpy.types.PropertyGroup):
+    """Scene properties for the UV Cell Snap addon."""
 
     uv_channel: bpy.props.StringProperty(name="UV Channel", default="ch3")
     grid_columns: bpy.props.IntProperty(name="Columns", default=4, min=1)
     grid_rows: bpy.props.IntProperty(name="Rows", default=2, min=1)
-
-    bl_idname = "uv_cell_snap"
-
-    def draw(self, context):
-        """Draw the addon preferences UI."""
-        layout = self.layout
-        layout.prop(self, "uv_channel")
-        layout.prop(self, "grid_columns")
-        layout.prop(self, "grid_rows")
 
 
 class UVCellSnapOperator(bpy.types.Operator):
@@ -40,9 +31,9 @@ class UVCellSnapOperator(bpy.types.Operator):
 
     def execute(self, context):
         """Snap selected UV islands to the specified grid cell."""
-        prefs = context.preferences.addons[__name__].preferences
-        columns = prefs.grid_columns
-        rows = prefs.grid_rows
+        scene_props = context.scene.uv_cell_snap
+        columns = scene_props.grid_columns
+        rows = scene_props.grid_rows
         grid_x = [i / columns for i in range(columns)]
         grid_y = [1.0 - i / rows for i in range(rows)]  # Reverse Y for UV space
 
@@ -69,9 +60,9 @@ class UVCellSnapOperator(bpy.types.Operator):
             mesh = obj.data
             bm = bmesh.from_edit_mesh(mesh)
 
-            uv_layer = bm.loops.layers.uv.get(prefs.uv_channel)
+            uv_layer = bm.loops.layers.uv.get(scene_props.uv_channel)
             if uv_layer is None:
-                self.report({'ERROR'}, f"UV channel '{prefs.uv_channel}' not found")
+                self.report({'ERROR'}, f"UV channel '{scene_props.uv_channel}' not found")
                 bpy.ops.object.mode_set(mode='OBJECT')
                 return {'CANCELLED'}
 
@@ -160,7 +151,7 @@ class UVCellSnapOffset(bpy.types.Operator):
 
     def execute(self, context):
         """Offset selected UV islands in the specified direction within the grid."""
-        prefs = context.preferences.addons[__name__].preferences
+        scene_props = context.scene.uv_cell_snap
         # Iterate over selected objects
         for obj in context.selected_objects:
             if obj.type != 'MESH':
@@ -173,9 +164,9 @@ class UVCellSnapOffset(bpy.types.Operator):
             mesh = obj.data
             bm = bmesh.from_edit_mesh(mesh)
 
-            uv_layer = bm.loops.layers.uv.get(prefs.uv_channel)
+            uv_layer = bm.loops.layers.uv.get(scene_props.uv_channel)
             if uv_layer is None:
-                self.report({'ERROR'}, f"UV channel '{prefs.uv_channel}' not found")
+                self.report({'ERROR'}, f"UV channel '{scene_props.uv_channel}' not found")
                 bpy.ops.object.mode_set(mode='OBJECT')
                 return {'CANCELLED'}
 
@@ -241,8 +232,8 @@ class UVCellSnapOffset(bpy.types.Operator):
                 center_y = (bbox_min[1] + bbox_max[1]) / 2
 
                 # Clamp the step sizes before applying them
-                clamped_offset_x = max(0, min(1, 1/prefs.grid_columns))
-                clamped_offset_y = max(0, min(1, 1/prefs.grid_rows))
+                clamped_offset_x = max(0, min(1, 1/scene_props.grid_columns))
+                clamped_offset_y = max(0, min(1, 1/scene_props.grid_rows))
 
                 for uv in island:
                     if self.direction == "up" and center_y + clamped_offset_y < 1:
@@ -271,24 +262,49 @@ class UVCellSnapPanel(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        """Only show in UV Editor when in edit mode."""
-        return context.mode == 'EDIT_MESH'
+        """Show in UV Editor when in edit mode or object mode."""
+        return context.mode in {'EDIT_MESH', 'OBJECT'}
 
     def draw(self, context):
         """Draw the UV Cell Snap panel UI elements."""
         layout = self.layout
-        prefs = context.preferences.addons[__name__].preferences
+        
+        # Check if scene properties exist
+        if not hasattr(context.scene, 'uv_cell_snap'):
+            layout.label(text="Addon not properly initialized", icon="ERROR")
+            return
+            
+        scene_props = context.scene.uv_cell_snap
 
-        for row in range(prefs.grid_rows):
-            row_layout = layout.row()
-            for col in range(prefs.grid_columns):
-                index = row * prefs.grid_columns + col
+        # Settings section
+        box = layout.box()
+        box.label(text="Settings", icon="SETTINGS")
+        
+        col = box.column(align=True)
+        col.prop(scene_props, "uv_channel")
+        
+        row = col.row(align=True)
+        row.prop(scene_props, "grid_columns")
+        row.prop(scene_props, "grid_rows")
+
+        # Grid buttons section
+        box = layout.box()
+        box.label(text="Snap to Cell", icon="UV_SYNC_SELECT")
+        
+        for row in range(scene_props.grid_rows):
+            row_layout = box.row()
+            for col in range(scene_props.grid_columns):
+                index = row * scene_props.grid_columns + col
                 row_layout.operator("uv.cell_snap", text=str(index+1)).cell_index = index
 
+        # Offset controls section
+        box = layout.box()
+        box.label(text="Offset Controls", icon="ARROW_LEFTRIGHT")
+        
         directions = ["up", "down", "left", "right"]
         arrows = ["TRIA_UP", "TRIA_DOWN", "TRIA_LEFT", "TRIA_RIGHT"]
 
-        grid = layout.grid_flow(
+        grid = box.grid_flow(
             row_major=True,
             columns=4,
             even_columns=True,
@@ -298,9 +314,6 @@ class UVCellSnapPanel(bpy.types.Panel):
 
         for direction, arrow in zip(directions, arrows):
             grid.operator("uv.cell_snap_offset", text="", icon=arrow).direction = direction
-
-        row = layout.row()
-        row.prop(prefs, "uv_channel")
 
 
 class VIEW3D_PT_UVCellSnap(bpy.types.Panel):
@@ -313,24 +326,49 @@ class VIEW3D_PT_UVCellSnap(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        """Only show in 3D View when in edit mode."""
-        return context.mode == 'EDIT_MESH'
+        """Show in 3D View when in edit mode or object mode."""
+        return context.mode in {'EDIT_MESH', 'OBJECT'}
 
     def draw(self, context):
         """Draw the UV Cell Snap panel UI elements."""
         layout = self.layout
-        prefs = context.preferences.addons[__name__].preferences
+        
+        # Check if scene properties exist
+        if not hasattr(context.scene, 'uv_cell_snap'):
+            layout.label(text="Addon not properly initialized", icon="ERROR")
+            return
+            
+        scene_props = context.scene.uv_cell_snap
 
-        for row in range(prefs.grid_rows):
-            row_layout = layout.row()
-            for col in range(prefs.grid_columns):
-                index = row * prefs.grid_columns + col
+        # Settings section
+        box = layout.box()
+        box.label(text="Settings", icon="SETTINGS")
+        
+        col = box.column(align=True)
+        col.prop(scene_props, "uv_channel")
+        
+        row = col.row(align=True)
+        row.prop(scene_props, "grid_columns")
+        row.prop(scene_props, "grid_rows")
+
+        # Grid buttons section
+        box = layout.box()
+        box.label(text="Snap to Cell", icon="UV_SYNC_SELECT")
+        
+        for row in range(scene_props.grid_rows):
+            row_layout = box.row()
+            for col in range(scene_props.grid_columns):
+                index = row * scene_props.grid_columns + col
                 row_layout.operator("uv.cell_snap", text=str(index+1)).cell_index = index
 
+        # Offset controls section
+        box = layout.box()
+        box.label(text="Offset Controls", icon="ARROW_LEFTRIGHT")
+        
         directions = ["up", "down", "left", "right"]
         arrows = ["TRIA_UP", "TRIA_DOWN", "TRIA_LEFT", "TRIA_RIGHT"]
 
-        grid = layout.grid_flow(
+        grid = box.grid_flow(
             row_major=True,
             columns=4,
             even_columns=True,
@@ -341,9 +379,6 @@ class VIEW3D_PT_UVCellSnap(bpy.types.Panel):
         for direction, arrow in zip(directions, arrows):
             grid.operator("uv.cell_snap_offset", text="", icon=arrow).direction = direction
 
-        row = layout.row()
-        row.prop(prefs, "uv_channel")
-
 
 class UVCellSnapMenu(bpy.types.Menu):
     """Popup menu for selecting UV cell"""
@@ -353,18 +388,18 @@ class UVCellSnapMenu(bpy.types.Menu):
     def draw(self, context):
         """Draw the popup menu for selecting UV grid cells."""
         layout = self.layout
-        prefs = context.preferences.addons[__name__].preferences
+        scene_props = context.scene.uv_cell_snap
 
-        for row in range(prefs.grid_rows):
+        for row in range(scene_props.grid_rows):
             row_layout = layout.row()
-            for col in range(prefs.grid_columns):
-                index = row * prefs.grid_columns + col
+            for col in range(scene_props.grid_columns):
+                index = row * scene_props.grid_columns + col
                 row_layout.operator("uv.cell_snap", text=str(index)).cell_index = index
 
 
-# Registering the Operator, Panel, Preferences, and Shortcut
+# Registering the Operator, Panel, Scene Properties, and Shortcut
 classes = [
-    UVCellSnapPreferences,
+    UVCellSnapSceneProperties,
     UVCellSnapOperator,
     UVCellSnapPanel,
     UVCellSnapMenu,
@@ -376,9 +411,15 @@ def register():
     """Register the addon classes and operators."""
     for cls in classes:
         bpy.utils.register_class(cls)
+    
+    # Register scene properties
+    bpy.types.Scene.uv_cell_snap = bpy.props.PointerProperty(type=UVCellSnapSceneProperties)
 
 def unregister():
     """Unregister the addon classes and operators."""
+    # Unregister scene properties
+    del bpy.types.Scene.uv_cell_snap
+    
     for cls in classes:
         bpy.utils.unregister_class(cls)
 
